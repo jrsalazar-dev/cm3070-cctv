@@ -1,0 +1,8 @@
+node_modules
+surveillance-app/output
+surveillance-app/opencv-python
+surveillance-app/yolov8n.pt
+dataset2014
+dist
+out
+*.log*
