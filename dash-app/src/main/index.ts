@@ -1,11 +1,14 @@
+import 'reflect-metadata'
+
 import { app, shell, BrowserWindow, protocol, ipcMain } from 'electron'
 import { join } from 'path'
 import { glob } from 'glob'
 import { statSync } from 'fs'
 import { spawn } from 'child_process'
-import zmq from 'zeromq'
+// import zmq from 'zeromq'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import Database from '../database/Database'
 
 function createWindow(): void {
   // Create the browser window.
@@ -55,6 +58,7 @@ async function listDetections(): Promise<string> {
 }
 
 async function registerHandlers(): Promise<void> {
+  const db = await new Database().init()
   // const sock = new zmq.Request()
   // sock.connect('tcp://localhost:5555')
   //
@@ -62,6 +66,9 @@ async function registerHandlers(): Promise<void> {
 
   // const [result] = await sock.receive()
 
+  ipcMain.handle('get-alerts', () => {
+    return db.fetchAlerts()
+  })
   ipcMain.handle('request-detections', listDetections)
 
   // console.log('___RESULT___', result.toString())
@@ -88,7 +95,6 @@ async function registerHandlers(): Promise<void> {
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(async () => {
   await registerHandlers()
-
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.electron')
 

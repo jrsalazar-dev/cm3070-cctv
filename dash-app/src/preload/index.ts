@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 
 import type { Api } from '../types'
+import { Alert } from '../database/models/Alert'
 
 // Custom APIs for renderer
 const api: Api = {
@@ -13,6 +14,9 @@ const api: Api = {
   },
   requestDetections(): Promise<string> {
     return ipcRenderer.invoke('request-detections')
+  },
+  getAlerts(): Promise<Alert[]> {
+    return ipcRenderer.invoke('get-alerts')
   },
 }
 
