@@ -62,7 +62,7 @@ def worker_thread(task_queue):
             cursor = conn.cursor()
             print("created cursor")
             print("got filename")
-            detection_timestamp = datetime.utcnow().timestamp()
+            detection_timestamp = int(floor(datetime.utcnow().timestamp()))
             detection_feed = 1
             print("got timestamp")
             print(
