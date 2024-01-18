@@ -14,13 +14,17 @@ from ultralytics.utils.plotting import Annotator
 QUIET_SECONDS = 1
 MAX_VID_LENGTH = 20
 
-# print(cv2.getBuildInformation())
-
-# (id, filepath, detection_time (unix ts), detection_objects (comma string), detection_feed (id))
 INSERT_ALERT = """
-INSERT INTO alerts (filepath, detection_time, detection_objects, detection_feed) VALUES(?, ?, ?, ?)
+INSERT INTO alert (filepath, detection_time, detection_objects, detection_feed, detection_status) VALUES(?, ?, ?, ?, ?)
 """
 
+gst_simple = (
+    "appsrc ! "
+    "videoconvert ! "
+    "vp8enc ! "
+    "webmmux streamable=true ! "
+    "tcpserversink host=localhost port=5000 recover-policy=keyframe sync-method=latest-keyframe"
+)
 # Video capture buffer:
 # When movement is detected, start running YOLO every n-th frame, play with different n values
 # While YOLO is detecting person, start writing to a buffer that will hold the past 20 seconds
@@ -44,6 +48,7 @@ DISABLE_DETECTIONS = False
 
 
 def worker_thread(task_queue):
+    conn = sqlite3.connect("../camdb.db")
     print("Worker thread started")
     while True:
         try:
@@ -51,8 +56,7 @@ def worker_thread(task_queue):
             if task is None:
                 conn.close()
                 break
-            filename, fps, detection_objects = task
-            conn = sqlite3.connect("../camdb.db")
+            filename, fps, detection_objects, buffer = task
             print("got task", filename, fps, detection_objects)
             # save_video_clip(buffer, filename, fps)
             cursor = conn.cursor()
@@ -75,11 +79,12 @@ def worker_thread(task_queue):
                     datetime.utcnow().timestamp(),
                     detection_objects,
                     detection_feed,
+                    0,
                 ),
             )
             conn.commit()
             task_queue.task_done()
-            conn.close()
+            save_video_clip(buffer, f"./output/{filename}", fps)
             print("Saved alert, closing connections")
         except queue.Empty:
             print("Queue empty, sleeping 1s")
@@ -95,7 +100,7 @@ def save_video_clip(buffer, filename, fps):
     print("Saving video clip")
     sample_frame = buffer.get()
     height, width, layers = sample_frame.shape
-    fourcc = cv2.VideoWriter_fourcc(*"VP90")
+    fourcc = cv2.VideoWriter_fourcc(*"VP80")
     # Write the buffer to a file
     out = cv2.VideoWriter(
         filename,
@@ -150,6 +155,22 @@ def should_stop_recording(frame_count, fps, person_detected_at, first_detection)
     return has_been_quiet or has_recorded_full_buffer
 
 
+def run_live_feed(fps, width, height, stream_buffer):
+    # OpenCV VideoWriter with the GStreamer pipeline
+    out = cv2.VideoWriter(gst_simple, cv2.CAP_GSTREAMER, fps, (width, height), True)
+    while True:
+        try:
+            frame = stream_buffer.get()
+            if frame is None:
+                out.release()
+                break
+            out.write(frame)
+        except queue.Empty:
+            print("Stream queue empty, sleeping 1s")
+            sleep(1)
+            continue
+
+
 def capture(file):
     # open the video file
     # cap = cv2.VideoCapture(file)
@@ -163,23 +184,24 @@ def process_video(file):
     cap = capture(file)
     frame_count = 0
     fps = 20
-    frame_buffer = queue.Queue(maxsize=20 * MAX_VID_LENGTH)
+    frame_buffer = queue.Queue(maxsize=fps * MAX_VID_LENGTH)
+    stream_buffer = queue.Queue(maxsize=fps * MAX_VID_LENGTH)
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    gst_simple = (
-        "appsrc ! "
-        "videoconvert ! "
-        "vp8enc ! "
-        "webmmux streamable=true ! "
-        "tcpserversink host=localhost port=5000 recover-policy=keyframe sync-method=latest-keyframe"
-    )
-    # OpenCV VideoWriter with the GStreamer pipeline
-    out = cv2.VideoWriter(gst_simple, cv2.CAP_GSTREAMER, fps, (width, height), True)
+    new_width = 960
+    ratio = new_width / width
+    new_height = int(height * ratio)
 
     first_detection = -1
     person_detected_at = -1
     objects_detected = []
+
+    # Start a new thread to stream the video
+    stream_thread = threading.Thread(
+        target=run_live_feed, args=(fps, new_width, new_height, stream_buffer)
+    )
+    stream_thread.start()
 
     while True:
         frame_count += 1
@@ -188,6 +210,8 @@ def process_video(file):
 
         if not ret:
             break
+
+        frame = cv2.resize(frame, (new_width, new_height))
 
         # apply Gaussian Blur to reduce noise
         frame = cv2.GaussianBlur(frame, (5, 5), 0)
@@ -214,7 +238,7 @@ def process_video(file):
                 # draw the bounding box on the frame
                 cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
-        # only run YOLO when contours are detected
+        # only run YOLO when contours are detected and detections are enabled
         if not DISABLE_DETECTIONS and contours or first_detection != -1:
             detected, classes_detected = detect_person(frame, frame_count)
             if detected:
@@ -225,6 +249,8 @@ def process_video(file):
 
         if frame_buffer.full():
             frame_buffer.get()
+        if stream_buffer.full():
+            stream_buffer.get()
 
         if should_stop_recording(frame_count, fps, person_detected_at, first_detection):
             video_count += 1
@@ -237,38 +263,30 @@ def process_video(file):
 
             filename = datetime.utcnow().strftime("%Y-%m-%d-%H:%M:%S")
             worker_queue.put(
-                (
-                    f"{filename}.webm",
-                    fps,
-                    ",".join(objects_detected),
-                )
+                (f"{filename}.webm", fps, ",".join(objects_detected), frame_buffer_copy)
             )
-            # # Start a new thread to save the video
-            thread = threading.Thread(
-                target=save_video_clip,
-                args=(frame_buffer_copy, f"./output/{filename}.webm", fps),
-            )
-            thread.start()
-            # Clear the memory of the frame buffer
-            # del frame_buffer_copy
         else:
             # add frame to buffer
             frame_buffer.put(frame)
 
         # display the frame
         cv2.imshow("frame", frame)
-        out.write(frame)
+        stream_buffer.put(frame)
+        # out.write(frame)
 
         # check for quit signal
         if cv2.pollKey() == ord("q"):
             break
 
+    worker_queue.put(None)
+    stream_buffer.put(None)
     # release resources
     cap.release()
-    out.release()
+    # out.release()
     cv2.destroyAllWindows()
     cv2.waitKey(1)
     worker_ref.join()
+    stream_thread.join()
 
 
 #
