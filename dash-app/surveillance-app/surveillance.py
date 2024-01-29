@@ -5,11 +5,16 @@ import threading
 import os
 import sqlite3
 import asyncio
+
+# import pybgs as bgs
+from math import floor
 from time import sleep
 from datetime import datetime
 from ffprobe import FFProbe
 from ultralytics import YOLO
 from ultralytics.utils.plotting import Annotator
+
+print(cv2.getBuildInformation())
 
 QUIET_SECONDS = 1
 MAX_VID_LENGTH = 20
@@ -17,14 +22,10 @@ MAX_VID_LENGTH = 20
 INSERT_ALERT = """
 INSERT INTO alert (filepath, detection_time, detection_objects, detection_feed, detection_status) VALUES(?, ?, ?, ?, ?)
 """
+GET_LIVE_FEEDS = """
+SELECT * from live_feed
+"""
 
-gst_simple = (
-    "appsrc ! "
-    "videoconvert ! "
-    "vp8enc ! "
-    "webmmux streamable=true ! "
-    "tcpserversink host=localhost port=5000 recover-policy=keyframe sync-method=latest-keyframe"
-)
 # Video capture buffer:
 # When movement is detected, start running YOLO every n-th frame, play with different n values
 # While YOLO is detecting person, start writing to a buffer that will hold the past 20 seconds
@@ -44,11 +45,18 @@ detection_timestamp = 0
 
 worker_queue = queue.Queue()
 
-DISABLE_DETECTIONS = False
+DISABLE_DETECTIONS = True
+
+
+def connect_to_db():
+    dir = os.path.dirname(os.path.realpath(__file__))
+    print(dir)
+    conn = sqlite3.connect(dir + "/../camdb.db")
+    return conn
 
 
 def worker_thread(task_queue):
-    conn = sqlite3.connect("../camdb.db")
+    conn = connect_to_db()
     print("Worker thread started")
     while True:
         try:
@@ -92,10 +100,6 @@ def worker_thread(task_queue):
             continue
 
 
-worker_ref = threading.Thread(target=worker_thread, args=(worker_queue,))
-worker_ref.start()
-
-
 def save_video_clip(buffer, filename, fps):
     print("Saving video clip")
     sample_frame = buffer.get()
@@ -118,7 +122,7 @@ def save_video_clip(buffer, filename, fps):
     print("released out")
 
 
-def detect_person(frame, frame_count):
+def detect_person(frame):
     results = model(frame, verbose=False)
     # annotator = Annotator(frame)
 
@@ -133,7 +137,7 @@ def detect_person(frame, frame_count):
             classes_detected.append(class_name)
             if class_name == "person":
                 # annotator.box_label(b, f"{r.names[int(c)]} {float(box.conf):.2}")
-                detected = box.conf > 0.5
+                detected = detected or box.conf > 0.5
     return detected, classes_detected
 
 
@@ -155,8 +159,16 @@ def should_stop_recording(frame_count, fps, person_detected_at, first_detection)
     return has_been_quiet or has_recorded_full_buffer
 
 
-def run_live_feed(fps, width, height, stream_buffer):
+def run_live_feed(fps, width, height, stream_buffer, index):
     # OpenCV VideoWriter with the GStreamer pipeline
+    gst_simple = (
+        "appsrc ! "
+        "videoconvert ! "
+        "vp8enc ! "
+        "webmmux streamable=true ! "
+        f"tcpserversink host=localhost port={5000 + index} recover-policy=keyframe sync-method=latest-keyframe"
+    )
+    print(gst_simple, index)
     out = cv2.VideoWriter(gst_simple, cv2.CAP_GSTREAMER, fps, (width, height), True)
     while True:
         try:
@@ -171,17 +183,57 @@ def run_live_feed(fps, width, height, stream_buffer):
             continue
 
 
-def capture(file):
-    # open the video file
-    # cap = cv2.VideoCapture(file)
-    cap = cv2.VideoCapture(0)
+def capture(feed):
+    if feed["url"]:
+        print("Using url", feed["url"])
+        # If feed is a network camera with a url, use that
+        return cv2.VideoCapture(feed["url"])
+    elif feed["cameraIndex"] is not None:
+        print("Using cameraIndex", feed["cameraIndex"])
+        # If feed is a local camera, use the camera index
+        return cv2.VideoCapture(feed["cameraIndex"])
 
-    return cap
+
+def get_foreground_mask(frame):
+    fgMask = backSub.apply(frame)
+    return fgMask
 
 
-def process_video(file):
+# Performs denoising and background subtraction on a frame, returns the contours
+# of the foreground objects
+def find_frame_movement(frame):
+    # apply Gaussian Blur to reduce noise
+    frame = cv2.GaussianBlur(frame, (5, 5), 0)
+
+    # apply the background subtraction
+    fgMask = get_foreground_mask(frame)
+
+    # apply a morphological operation to remove noise
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    fgMask = cv2.morphologyEx(fgMask, cv2.MORPH_OPEN, kernel)
+
+    # find contours of the foreground objects
+    contours, hierarchy = cv2.findContours(
+        fgMask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
+    )
+
+    # loop over the contours
+    for i, contour in enumerate(contours):
+        # get the bounding box of the contour
+        (x, y, w, h) = cv2.boundingRect(contour)
+
+        # filter out small contours
+        if cv2.contourArea(contour) > 1000:
+            # draw the bounding box on the frame
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 0, 255), 2)
+
+    return frame, contours
+
+
+def process_video(feed, index):
+    print("_____FEED_____", feed)
     video_count = 0
-    cap = capture(file)
+    cap = capture(feed)
     frame_count = 0
     fps = 20
     frame_buffer = queue.Queue(maxsize=fps * MAX_VID_LENGTH)
@@ -198,49 +250,29 @@ def process_video(file):
     objects_detected = []
 
     # Start a new thread to stream the video
+    # if index == 0:
     stream_thread = threading.Thread(
-        target=run_live_feed, args=(fps, new_width, new_height, stream_buffer)
+        target=run_live_feed,
+        args=(fps, new_width, new_height, stream_buffer, index),
     )
     stream_thread.start()
 
     while True:
         frame_count += 1
+        frame_count = frame_count % 1000000
         # read a frame from the video
         ret, frame = cap.read()
 
         if not ret:
             break
 
-        frame = cv2.resize(frame, (new_width, new_height))
-
-        # apply Gaussian Blur to reduce noise
-        frame = cv2.GaussianBlur(frame, (5, 5), 0)
-
-        # apply the background subtraction
-        fgMask = backSub.apply(frame)
-
-        # apply a morphological operation to remove noise
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-        fgMask = cv2.morphologyEx(fgMask, cv2.MORPH_OPEN, kernel)
-
-        # find contours of the foreground objects
-        contours, hierarchy = cv2.findContours(
-            fgMask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
+        frame, contours = find_frame_movement(
+            cv2.resize(frame, (new_width, new_height))
         )
 
-        # loop over the contours
-        for i, contour in enumerate(contours):
-            # get the bounding box of the contour
-            (x, y, w, h) = cv2.boundingRect(contour)
-
-            # filter out small contours
-            if cv2.contourArea(contour) > 1000:
-                # draw the bounding box on the frame
-                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-
         # only run YOLO when contours are detected and detections are enabled
-        if not DISABLE_DETECTIONS and contours or first_detection != -1:
-            detected, classes_detected = detect_person(frame, frame_count)
+        if not DISABLE_DETECTIONS and (contours or first_detection != -1):
+            detected, classes_detected = detect_person(frame)
             if detected:
                 objects_detected = list(set(objects_detected + classes_detected))
                 person_detected_at = frame_count
@@ -270,7 +302,7 @@ def process_video(file):
             frame_buffer.put(frame)
 
         # display the frame
-        cv2.imshow("frame", frame)
+        # cv2.imshow("frame", frame)
         stream_buffer.put(frame)
         # out.write(frame)
 
@@ -278,18 +310,14 @@ def process_video(file):
         if cv2.pollKey() == ord("q"):
             break
 
-    worker_queue.put(None)
     stream_buffer.put(None)
     # release resources
     cap.release()
     # out.release()
     cv2.destroyAllWindows()
     cv2.waitKey(1)
-    worker_ref.join()
     stream_thread.join()
 
-
-#
 
 vid_list = [
     "./samples/worker-zone-detection.mp4",
@@ -301,7 +329,7 @@ vid_list = [
     "./samples/Traffic_Laramie_2.mp4",
 ]
 
-home_cam = "rtsp://admin:janneman@192.168.178.136:8554/Streaming/Channels/101"
+# home_cam = "rtsp://admin:janneman@192.168.178.136:8554/Streaming/Channels/101"
 
 # context = zmq.Context()
 # socket = context.socket(zmq.REP)
@@ -313,4 +341,166 @@ home_cam = "rtsp://admin:janneman@192.168.178.136:8554/Streaming/Channels/101"
 #     socket.send_string("World")
 #     sleep(1)
 
-process_video(vid_list[2])
+# process_video(vid_list[2])
+
+
+def restart():
+    worker_queue.put(None)
+    # Get the current thread (main thread in this case)
+    current_thread = threading.current_thread()
+
+    # Enumerate all alive threads except the current thread
+    for thread in threading.enumerate():
+        if thread is not current_thread:
+            thread.join()
+    main()
+
+
+def main():
+    worker_ref = threading.Thread(target=worker_thread, args=(worker_queue,))
+    worker_ref.start()
+
+    conn = connect_to_db()
+    cursor = conn.cursor()
+    cursor.execute(GET_LIVE_FEEDS)
+    feeds = cursor.fetchall()
+    conn.close()
+
+    names = list(map(lambda x: x[0], cursor.description))
+    print("Got feeds", names, feeds)
+    feed_threads = []
+    for i, feed_data in enumerate(feeds):
+        feed = {name: feed_data[index] for index, name in enumerate(names)}
+        print("Processing feed", feed)
+        # process_video(feed)
+        feed_thread = threading.Thread(
+            target=process_video,
+            args=(
+                feed,
+                i,
+            ),
+        )
+        feed_thread.start()
+        feed_threads.append(feed_thread)
+    print("Finished feed loop")
+    for feed_thread in feed_threads:
+        feed_thread.join()
+
+
+def calculate_iou(box1, box2):
+    """
+    Calculate the Intersection over Union (IoU) of two bounding boxes.
+    """
+    # Determine the coordinates of the intersection rectangle
+    x_left = max(box1[0], box2[0])
+    y_top = max(box1[1], box2[1])
+    x_right = min(box1[0] + box1[2], box2[0] + box2[2])
+    y_bottom = min(box1[1] + box1[3], box2[1] + box2[3])
+
+    if x_right < x_left or y_bottom < y_top:
+        return 0.0
+
+    # Calculate area of intersection rectangle
+    intersection_area = (x_right - x_left) * (y_bottom - y_top)
+
+    # Calculate the area of both bounding boxes
+    box1_area = box1[2] * box1[3]
+    box2_area = box2[2] * box2[3]
+
+    # Calculate union area
+    union_area = box1_area + box2_area - intersection_area
+
+    # Compute IoU
+    iou = intersection_area / union_area
+    return iou
+
+
+def measure_accuracy(gt_contours, detected_contours):
+    # Convert contours to bounding boxes
+    detected_boxes = [cv2.boundingRect(contour) for contour in detected_contours]
+
+    ground_truth_boxes = [cv2.boundingRect(contour) for contour in gt_contours]
+
+    # Calculate IoU and store the results
+    results = []
+    for gt_box in ground_truth_boxes:
+        for det_box in detected_boxes:
+            iou = calculate_iou(det_box, gt_box)
+            if iou > 0.5:
+                results.append(
+                    {"Detected Box": det_box, "Ground Truth Box": gt_box, "IoU": iou}
+                )
+
+    # Calculate accuracy
+    correct_detections = sum(1 for result in results)
+    total_detections = len(ground_truth_boxes)
+    accuracy = (
+        correct_detections / total_detections
+        if total_detections > correct_detections
+        else correct_detections
+    )
+
+    return results, accuracy
+
+
+def find_movement_bsuv():
+    model = torch.load("Fast-BSUV-Net-2.0.mdl")
+    model.eval()
+    return model
+
+
+# bg_model = bgs.ViBe()
+
+
+def evaluation():
+    path = "./dataset2014/dataset/baseline/pedestrians"
+    while True:
+        aggregated_results = []
+        total_accuracy = 0
+        # for index in range(1, 1099):
+        for i in range(400, 900):
+            index = str(i).zfill(6)
+            gt_path = f"{path}/groundtruth/gt{index}.png"
+            ground_truth = cv2.imread(gt_path)
+            input = cv2.imread(f"{path}/input/in{index}.jpg")
+
+            # cv2.imshow("gt", ground_truth)
+
+            gray = cv2.cvtColor(ground_truth, cv2.COLOR_BGR2GRAY)
+            _, thresh = cv2.threshold(gray, 169, 255, cv2.THRESH_BINARY)
+
+            gt_contours, _ = cv2.findContours(
+                thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            )
+
+            for contour in gt_contours:
+                x, y, w, h = cv2.boundingRect(contour)
+                cv2.rectangle(input, (x, y), (x + w, y + h), (0, 255, 0), 2)
+
+            # bgsub_frame, bgsub_contours = find_frame_movement(input)
+            bgs_out = bg_model.apply(input)
+            bgs_contours, _ = cv2.findContours(
+                bgs_out, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            )
+            # bgs_bgmodel = bg_model.getBackgroundModel()
+
+            # acc_results, accuracy = measure_accuracy(gt_contours, bgsub_contours)
+            # aggregated_results += acc_results
+            # total_accuracy += accuracy
+
+            cv2.imshow("Ground truth contours", input)
+            cv2.imshow("bgs", bgs_out)
+            # cv2.imshow("bgs_model", bgs_bgmodel)
+            cv2.waitKey(1)
+
+            if cv2.pollKey() == ord("q"):
+                cv2.destroyAllWindows()
+                return
+        # average_accuracy = total_accuracy / len(aggregated_results)
+        # print(f"\nAverage Accuracy: {average_accuracy:.2f}")
+        # print(aggregated_results)
+        return
+
+
+# evaluation()
+main()
