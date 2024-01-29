@@ -1,7 +1,8 @@
 {
-  "name": "vite-template-solid",
+  "name": "@cm-apps/remote",
   "version": "0.0.0",
   "description": "",
+  "private": true,
   "scripts": {
     "start": "node server.mjs",
     "dev": "vite",
@@ -19,6 +20,7 @@
     "vite-plugin-solid": "^2.7.0"
   },
   "dependencies": {
+    "@cm-apps/shared": "workspace:*",
     "@solid-primitives/event-listener": "^2.3.0",
     "@solid-primitives/websocket": "^1.2.0",
     "@solidjs/router": "^0.8.2",

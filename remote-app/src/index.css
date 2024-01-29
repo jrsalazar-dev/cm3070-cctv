@@ -1,3 +1,58 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/*
+  Paginaton styles taken from example on:
+  https://kobalte.dev/docs/core/components/pagination#siblings-example
+*/
+.pagination__root {
+  display: flex;
+  justify-content: center;
+}
+.pagination__root > ul {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.pagination__item {
+  appearance: none;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  height: 40px;
+  width: auto;
+  outline: none;
+  border-radius: 6px;
+  padding: 0 16px;
+  color: hsl(240 4% 16%);
+  font-size: 16px;
+  line-height: 0;
+  transition:
+    250ms background-color,
+    250ms color,
+    250ms border-color;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid hsl(240 6% 90%);
+  background-color: rgb(209 213 219);
+}
+.pagination__item[data-current] {
+  background-color: rgb(156, 163, 175);
+}
+.pagination__ellipsis {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  height: 40px;
+  width: auto;
+  outline: none;
+  border-radius: 6px;
+  padding: 0 16px;
+  color: hsl(240 4% 16%);
+  font-size: 16px;
+  line-height: 0;
+  cursor: default;
+  border: 1px solid hsl(240 6% 90%);
+}

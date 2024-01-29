@@ -1,0 +1,52 @@
+{
+  "name": "@cm-apps/shared",
+  "version": "0.0.0",
+  "description": "",
+  "scripts": {
+    "build": "rollup -c",
+    "watch": "rollup -c -w"
+  },
+  "sideEffects": false,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "solid": "./dist/source/index.jsx",
+      "import": "./dist/esm/index.js",
+      "browser": {
+        "import": "./dist/esm/index.js",
+        "require": "./dist/cjs/index.js"
+      },
+      "require": "./dist/cjs/index.js",
+      "node": "./dist/cjs/index.js"
+    }
+  },
+  "postcss": {
+    "plugins": {
+      "tailwindcss": {},
+      "autoprefixer": {}
+    }
+  },
+  "main": "dist/cjs/index.js",
+  "module": "dist/esm/index.js",
+  "types": "dist/types/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "solid-devtools": "^0.29.2",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "@kobalte/core": "^0.12.1",
+    "autoprefixer": "^10.4.17",
+    "postcss": "^8.4.33",
+    "rollup": "^4.9.6",
+    "rollup-plugin-postcss": "^4.0.2",
+    "rollup-plugin-tailwindcss": "^1.0.0",
+    "rollup-preset-solid": "^2.0.1",
+    "solid-js": "^1.8.11",
+    "tailwindcss": "^3.4.1"
+  }
+}

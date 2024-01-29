@@ -1,0 +1,19 @@
+{
+  "version": "workspace:0.0.0",
+  "description": "",
+  "workspaces": {
+    "packages": [
+      "dash-app",
+      "remote-app",
+      "shared"
+    ]
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start:dash": "yarn workspace @cm-apps/dash run dev",
+    "start:remote": "yarn workspace @cm-apps/remote start"
+  },
+  "author": "",
+  "license": "ISC",
+  "packageManager": "yarn@4.0.2"
+}

@@ -1,21 +1,21 @@
-import { Entity, Column, PrimaryGeneratedColumn } from 'typeorm'
+import { Entity, Column, PrimaryGeneratedColumn } from "typeorm";
 
 @Entity()
 export class LiveFeed {
-  @PrimaryGeneratedColumn()
-  id: number
+	@PrimaryGeneratedColumn()
+	id: number;
 
-  @Column('integer')
-  cameraIndex?: number
+	@Column("integer")
+	cameraIndex?: number;
 
-  @Column('text')
-  url?: string
+	@Column("text")
+	url?: string;
 
-  @Column('text')
-  name: string
+	@Column("text")
+	name: string;
 
-  constructor() {
-    this.id = 0
-    this.name = ''
-  }
+	constructor() {
+		this.id = 0;
+		this.name = "";
+	}
 }

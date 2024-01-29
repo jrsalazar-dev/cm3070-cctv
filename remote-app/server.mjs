@@ -39,9 +39,12 @@ io.on('connection', (socket) => {
   socket.on('offer', (id, message) => {
     socket.to(id).emit('offer', socket.id, message)
   })
-  socket.on('detections', (detections) => {
-    console.log('server detections', detections)
-    socket.to(watcher).emit('detections', detections)
+  socket.on('alerts', (alerts) => {
+    socket.to(watcher).emit('alerts', alerts)
+  })
+  socket.on('liveFeeds', (liveFeeds) => {
+    console.log('server liveFeeds', liveFeeds)
+    socket.to(watcher).emit('liveFeeds', liveFeeds)
   })
   socket.on('watch', (id, detection) => {
     console.log('server set watch')

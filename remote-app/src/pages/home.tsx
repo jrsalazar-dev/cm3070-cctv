@@ -1,5 +1,7 @@
-import { For, createEffect, createSignal, onMount } from 'solid-js'
+import { For, Show, createEffect, createSignal } from 'solid-js'
 import { io } from 'socket.io-client'
+import { AlertsModal, Header, formatDate, formatTime } from '@cm-apps/shared'
+import { Alert } from '../types'
 
 let peerConnection: RTCPeerConnection
 const config = {
@@ -10,9 +12,17 @@ const config = {
   ],
 }
 
+interface Watching {
+  liveFeed?: number
+  alert?: string
+}
 export default function Home() {
-  const [detections, setDetections] = createSignal([])
-  const [watching, setWatching] = createSignal('')
+  const [isModalOpen, setIsModalOpen] = createSignal(false)
+  const [alerts, setAlerts] = createSignal([])
+  const [liveFeeds, setLiveFeeds] = createSignal([])
+  const [watching, setWatching] = createSignal<Watching>({
+    alert: null,
+  })
 
   const socket = io()
 
@@ -46,7 +56,7 @@ export default function Home() {
         }
       }
     })
-    socket.on('candidate', (id, candidate) => {
+    socket.on('candidate', (_, candidate) => {
       console.log('on candidate')
       peerConnection.addIceCandidate(new RTCIceCandidate(candidate)).catch((e) => console.error(e))
     })
@@ -56,9 +66,14 @@ export default function Home() {
       socket.emit('watcher', socket.id)
     })
 
-    socket.on('detections', (detections) => {
-      console.log('detections', detections)
-      setDetections(detections)
+    socket.on('alerts', (alerts) => {
+      console.log('alerts', alerts)
+      setAlerts(alerts)
+    })
+
+    socket.on('liveFeeds', (liveFeeds) => {
+      console.log('liveFeeds', liveFeeds)
+      setLiveFeeds(liveFeeds)
     })
   })
   socket.on('disconnect', () => {
@@ -72,23 +87,55 @@ export default function Home() {
     }
   })
 
+  const formatAlertName = (alertId: string, alerts: Alert[]) => {
+    const alert = alerts.find((a) => a.id === alertId)
+    return `${formatTime(alert.detection_time)} ${formatDate(alert.detection_time)} Feed: ${alert
+      .detection_feed?.name}`
+  }
+
   return (
-    <section class="bg-gray-100 text-gray-700 p-8">
-      <h1 class="text-2xl font-bold">Remote viewing</h1>
-      <p class="mt-4">Here you can watch your home camera streams</p>
-
-      <div>
-        <button onClick={() => setWatching('camera0')}>Camera 0</button>
-      </div>
-      <For each={detections()}>
-        {(detection) => (
-          <div>
-            <button onClick={() => setWatching(detection)}>{detection}</button>
+    <div class="container mx-auto">
+      <Header openAlertsModal={() => setIsModalOpen(true)} />
+      <section class="bg-gray-800 text-gray-300 p-8">
+        <Show when={'liveFeed' in watching()}>
+          <div class="relative w-full h-full">
+            <h1 class="text-2xl text-slate-200 dark:bg-black dark:bg-opacity-70 p-3 font-light mx-auto absolute top-0 left-0">
+              {watching().alert
+                ? formatAlertName(watching().alert, alerts())
+                : liveFeeds().find((f) => f.id === watching().liveFeed)?.name}
+            </h1>
+            <video class="mx-auto w-full" id="video-stream" crossOrigin="anonymous" autoplay loop />
           </div>
-        )}
-      </For>
+        </Show>
 
-      <video id="video-stream" style={{ width: '100%', 'max-width': '840px' }} loop autoplay />
-    </section>
+        <div class="pagination__root mt-5">
+          <ul>
+            <For each={liveFeeds()}>
+              {(feed) => (
+                <button
+                  class="pagination__item bg-gray-300"
+                  onClick={() =>
+                    setWatching({
+                      liveFeed: feed.id,
+                      alert: undefined,
+                    })
+                  }
+                >
+                  {feed.name}
+                </button>
+              )}
+            </For>
+          </ul>
+        </div>
+
+        <AlertsModal
+          onDelete={() => {}}
+          onClose={() => setIsModalOpen(false)}
+          isOpen={isModalOpen()}
+          alerts={alerts()}
+          onPlay={(alert) => setWatching({ alert: alert.id, liveFeed: undefined })}
+        />
+      </section>
+    </div>
   )
 }

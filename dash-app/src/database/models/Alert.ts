@@ -1,31 +1,41 @@
-import { Entity, Column, PrimaryGeneratedColumn } from 'typeorm'
+import {
+	Entity,
+	Column,
+	PrimaryGeneratedColumn,
+	ManyToOne,
+	JoinColumn,
+} from "typeorm";
+import { LiveFeed } from "./LiveFeed";
 
 @Entity()
 export class Alert {
-  @PrimaryGeneratedColumn()
-  id: number
+	@PrimaryGeneratedColumn()
+	id: number;
 
-  @Column('text')
-  filepath: string
+	@Column("text")
+	filepath: string;
 
-  @Column('integer')
-  detection_time: number
+	@Column("integer")
+	detection_time: number;
 
-  @Column('text')
-  detection_objects: string
+	@Column("text")
+	detection_objects: string;
 
-  @Column('integer')
-  detection_feed: number
+	@ManyToOne(() => LiveFeed)
+	@JoinColumn({
+		name: "detection_feed",
+	})
+	@Column("integer")
+	detection_feed?: LiveFeed;
 
-  @Column('integer')
-  detection_status: number
+	@Column("integer")
+	detection_status: number;
 
-  constructor() {
-    this.id = 0
-    this.filepath = ''
-    this.detection_time = 0
-    this.detection_objects = ''
-    this.detection_feed = 0
-    this.detection_status = 0
-  }
+	constructor() {
+		this.id = 0;
+		this.filepath = "";
+		this.detection_time = 0;
+		this.detection_objects = "";
+		this.detection_status = 0;
+	}
 }
