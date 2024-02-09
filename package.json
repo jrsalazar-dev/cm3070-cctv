@@ -10,6 +10,7 @@
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
+    "watch:shared": "yarn workspace @cm-apps/shared run watch",
     "start:dash": "yarn workspace @cm-apps/dash run dev",
     "start:remote": "yarn workspace @cm-apps/remote start"
   },

@@ -1,43 +1,46 @@
-import { contextBridge, ipcRenderer } from "electron";
-import { electronAPI } from "@electron-toolkit/preload";
+import { contextBridge, ipcRenderer } from 'electron'
+import { electronAPI } from '@electron-toolkit/preload'
 
-import type { Api } from "../types";
+import type { Api } from '../types'
 
 // Custom APIs for renderer
 const api: Api = {
-	startCamera(url: string) {
-		ipcRenderer.send("start-camera", url);
-	},
-	startWebcam(cam: number) {
-		ipcRenderer.send("start-webcam", cam);
-	},
-	requestDetections() {
-		return ipcRenderer.invoke("request-detections");
-	},
-	getAlerts() {
-		return ipcRenderer.invoke("get-alerts");
-	},
-	deleteAlert(id: string) {
-		return ipcRenderer.invoke("delete-alert", id);
-	},
-	getLiveFeeds() {
-		return ipcRenderer.invoke("get-live-feeds");
-	},
-};
+  requestDetections() {
+    return ipcRenderer.invoke('request-detections')
+  },
+  getAlerts() {
+    return ipcRenderer.invoke('get-alerts')
+  },
+  deleteAlert(id: string) {
+    return ipcRenderer.invoke('delete-alert', id)
+  },
+  setLiveFeedAlerting(id: number, enabled: boolean) {
+    return ipcRenderer.invoke('set-live-feed-alerting', id, enabled)
+  },
+  getLiveFeeds() {
+    return ipcRenderer.invoke('get-live-feeds')
+  },
+  addLiveFeed(liveFeed) {
+    return ipcRenderer.invoke('add-live-feed', liveFeed)
+  },
+  start() {
+    return ipcRenderer.invoke('start')
+  },
+}
 
 // Use `contextBridge` APIs to expose Electron APIs to
 // renderer only if context isolation is enabled, otherwise
 // just add to the DOM global.
 if (process.contextIsolated) {
-	try {
-		contextBridge.exposeInMainWorld("electron", electronAPI);
-		contextBridge.exposeInMainWorld("api", api);
-	} catch (error) {
-		console.error(error);
-	}
+  try {
+    contextBridge.exposeInMainWorld('electron', electronAPI)
+    contextBridge.exposeInMainWorld('api', api)
+  } catch (error) {
+    console.error(error)
+  }
 } else {
-	// @ts-ignore (define in dts)
-	window.electron = electronAPI;
-	// @ts-ignore (define in dts)
-	window.api = api;
+  // @ts-ignore (define in dts)
+  window.electron = electronAPI
+  // @ts-ignore (define in dts)
+  window.api = api
 }

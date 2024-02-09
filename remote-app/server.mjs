@@ -1,3 +1,4 @@
+import fs from 'fs'
 import express from 'express'
 import ViteExpress from 'vite-express'
 import http from 'http'
@@ -5,6 +6,11 @@ import { Server } from 'socket.io'
 
 const port = 3000
 const app = express()
+
+// const sslOptions = {
+//   key: fs.readFileSync('cert/localhost.key'),
+//   cert: fs.readFileSync('cert/localhost.crt'),
+// }
 
 const server = http.createServer(app)
 const io = new Server(server, {

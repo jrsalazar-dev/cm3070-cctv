@@ -1,69 +1,106 @@
 import {
-	createConnection,
-	Connection,
-	DeleteResult,
-	Repository,
-} from "typeorm";
-import { Alert } from "./models/Alert";
-import { LiveFeed } from "./models/LiveFeed";
+  createConnection,
+  Connection,
+  DeleteResult,
+  Repository,
+  UpdateResult,
+  InsertResult,
+} from 'typeorm'
+import { Alert } from './models/Alert'
+import { LiveFeed } from './models/LiveFeed'
 
 export default class Database {
-	private connection: Connection | null = null;
+  private connection: Connection | null = null
 
-	public async init(): Promise<Database> {
-		this.connection = await createConnection({
-			type: "sqlite",
-			synchronize: true,
-			logging: true,
-			logger: "simple-console",
-			database: "camdb.db",
-			entities: [Alert, LiveFeed],
-		});
+  public async init(): Promise<Database> {
+    this.connection = await createConnection({
+      type: 'sqlite',
+      synchronize: true,
+      logging: true,
+      logger: 'simple-console',
+      database: 'camdb.db',
+      entities: [Alert, LiveFeed],
+    })
 
-		if (this.connection.isConnected) {
-			this.connection.synchronize();
-		}
+    if (this.connection.isConnected) {
+      this.connection.synchronize()
+    }
 
-		return this;
-	}
+    return this
+  }
 
-	private getAlertRepository(): Repository<Alert> {
-		if (!this.connection) {
-			throw new Error("No database connection");
-		}
-		return this.connection.getRepository(Alert);
-	}
+  private getAlertRepository(): Repository<Alert> {
+    if (!this.connection) {
+      throw new Error('No database connection')
+    }
+    return this.connection.getRepository(Alert)
+  }
 
-	private getLiveFeedRepository(): Repository<LiveFeed> {
-		if (!this.connection) {
-			throw new Error("No database connection");
-		}
-		return this.connection.getRepository(LiveFeed);
-	}
+  private getLiveFeedRepository(): Repository<LiveFeed> {
+    if (!this.connection) {
+      throw new Error('No database connection')
+    }
+    return this.connection.getRepository(LiveFeed)
+  }
 
-	public async insert(alert: Alert): Promise<Alert> {
-		const alertRepository = this.getAlertRepository();
+  public async insert(alert: Alert): Promise<Alert> {
+    const alertRepository = this.getAlertRepository()
 
-		return alertRepository.save(alert);
-	}
+    return alertRepository.save(alert)
+  }
 
-	public async deleteAlert(id: string): Promise<DeleteResult> {
-		const alertRepository = this.getAlertRepository();
+  public async deleteAlert(id: string): Promise<DeleteResult> {
+    const alertRepository = this.getAlertRepository()
 
-		return alertRepository.delete(id);
-	}
+    return alertRepository.delete(id)
+  }
 
-	public async fetchAlerts(): Promise<Alert[]> {
-		const alertRepository = this.getAlertRepository();
+  public async fetchAlerts(): Promise<Alert[]> {
+    const alertRepository = this.getAlertRepository()
 
-		return alertRepository.find({
-			relations: ["detection_feed"],
-		});
-	}
+    return alertRepository.find({
+      relations: ['detection_feed'],
+    })
+  }
 
-	public async fetchLiveFeeds(): Promise<LiveFeed[]> {
-		const liveFeedRepository = this.getLiveFeedRepository();
+  public async getUnalerted(): Promise<Alert[]> {
+    const alertRepository = this.getAlertRepository()
 
-		return liveFeedRepository.find();
-	}
+    return alertRepository.find({
+      take: 1,
+      relations: ['detection_feed'],
+      where: {
+        detection_alerted: 0,
+      },
+    })
+  }
+
+  public async fetchLiveFeeds(): Promise<LiveFeed[]> {
+    const liveFeedRepository = this.getLiveFeedRepository()
+
+    return liveFeedRepository.find()
+  }
+
+  public async addLiveFeed({ name, cameraIndex, url }): Promise<InsertResult> {
+    const liveFeedRepository = this.getLiveFeedRepository()
+
+    return liveFeedRepository.insert({
+      name,
+      cameraIndex: cameraIndex ?? null,
+      url,
+    })
+  }
+
+  public async setLiveFeedAlerting(id: number, enabled: boolean): Promise<UpdateResult> {
+    const liveFeedRepository = this.getLiveFeedRepository()
+
+    return liveFeedRepository.update(
+      {
+        id,
+      },
+      {
+        is_detecting: enabled,
+      },
+    )
+  }
 }

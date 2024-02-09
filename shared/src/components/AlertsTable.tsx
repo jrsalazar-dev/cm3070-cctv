@@ -17,7 +17,7 @@ export const AlertsTable: Component<Props> = (props) => {
   const totalPages = Math.ceil(props.alerts.length / PAGE_SIZE)
 
   return (
-    <div class="p-8 dark:bg-gray-800">
+    <div class="p-8 bg-gray-800">
       <div class="p-4 rounded-md">
         <div class="flex justify-between mb-4">
           <div class="flex-1 pr-4">
@@ -33,8 +33,8 @@ export const AlertsTable: Component<Props> = (props) => {
           </div>
         </div>
         <div class="overflow-x-auto relative shadow-md sm:rounded-lg">
-          <table class="w-full text-sm text-left text-gray-500 dark:text-gray-400">
-            <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+          <table class="w-full text-sm text-left text-gray-400">
+            <thead class="text-xs uppercase bg-gray-700 text-gray-400">
               <tr>
                 <th scope="col" class="py-3 px-6">
                   Alert number
@@ -65,7 +65,7 @@ export const AlertsTable: Component<Props> = (props) => {
                 )}
               >
                 {(alert) => (
-                  <tr class="bg-white border-b dark:bg-gray-600 dark:border-gray-700">
+                  <tr class="border-b bg-gray-600 border-gray-700">
                     <td class="py-4 px-6">{alert.id}</td>
                     <td class="py-4 px-6 max-w-lg">{alert.detection_objects}</td>
                     <td class="py-4 px-6">{formatTime(alert.detection_time)}</td>
@@ -75,7 +75,7 @@ export const AlertsTable: Component<Props> = (props) => {
                       <a
                         href="#"
                         onClick={() => props.onPlay(alert)}
-                        class="font-medium text-blue-600 dark:text-blue-500 hover:underline"
+                        class="font-medium text-blue-500 hover:underline"
                       >
                         Play
                       </a>
@@ -84,7 +84,7 @@ export const AlertsTable: Component<Props> = (props) => {
                       <a
                         href="#"
                         onClick={() => props.onDelete(+alert.id)}
-                        class="font-medium text-red-600 dark:text-red-500 hover:underline"
+                        class="font-medium text-red-500 hover:underline"
                       >
                         Delete
                       </a>

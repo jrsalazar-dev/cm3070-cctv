@@ -3,6 +3,7 @@ import { Component, JSX, Show } from 'solid-js'
 type ModalProps = {
   isOpen: boolean
   onClose: () => void
+  contentClass?: string
   children: JSX.Element
 }
 
@@ -17,10 +18,10 @@ export const Modal: Component<ModalProps> = (props) => {
   return (
     <Show when={props.isOpen}>
       <div
-        class="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center"
+        class="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center w-full"
         onClick={handleOverlayClick}
       >
-        <div class="bg-gray-900 p-4 rounded">
+        <div class={props.contentClass || 'rounded w-full max-w-7xl'}>
           {/* Modal content goes here */}
           {props.children}
         </div>

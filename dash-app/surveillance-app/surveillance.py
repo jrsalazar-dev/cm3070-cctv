@@ -14,7 +14,13 @@ from ffprobe import FFProbe
 from ultralytics import YOLO
 from ultralytics.utils.plotting import Annotator
 
-print(cv2.getBuildInformation())
+restart_event = threading.Event()
+
+detecting_events = {}
+
+context = zmq.Context()
+socket = context.socket(zmq.REP)
+socket.bind("tcp://*:5555")
 
 QUIET_SECONDS = 1
 MAX_VID_LENGTH = 20
@@ -45,7 +51,7 @@ detection_timestamp = 0
 
 worker_queue = queue.Queue()
 
-DISABLE_DETECTIONS = True
+DISABLE_DETECTIONS = False
 
 
 def connect_to_db():
@@ -173,7 +179,7 @@ def run_live_feed(fps, width, height, stream_buffer, index):
     while True:
         try:
             frame = stream_buffer.get()
-            if frame is None:
+            if frame is None or restart_event.is_set():
                 out.release()
                 break
             out.write(frame)
@@ -230,7 +236,7 @@ def find_frame_movement(frame):
     return frame, contours
 
 
-def process_video(feed, index):
+def process_video(feed, index, started_threads):
     print("_____FEED_____", feed)
     video_count = 0
     cap = capture(feed)
@@ -249,6 +255,9 @@ def process_video(feed, index):
     person_detected_at = -1
     objects_detected = []
 
+    detecting_events[feed["id"]] = threading.Event()
+
+    print(detecting_events)
     # Start a new thread to stream the video
     # if index == 0:
     stream_thread = threading.Thread(
@@ -263,7 +272,7 @@ def process_video(feed, index):
         # read a frame from the video
         ret, frame = cap.read()
 
-        if not ret:
+        if not ret or restart_event.is_set() or cv2.pollKey() == ord("q"):
             break
 
         frame, contours = find_frame_movement(
@@ -271,7 +280,11 @@ def process_video(feed, index):
         )
 
         # only run YOLO when contours are detected and detections are enabled
-        if not DISABLE_DETECTIONS and (contours or first_detection != -1):
+        if (
+            not DISABLE_DETECTIONS
+            and detecting_events[feed["id"]].is_set()
+            and (contours or first_detection != -1)
+        ):
             detected, classes_detected = detect_person(frame)
             if detected:
                 objects_detected = list(set(objects_detected + classes_detected))
@@ -301,14 +314,10 @@ def process_video(feed, index):
             # add frame to buffer
             frame_buffer.put(frame)
 
-        # display the frame
-        # cv2.imshow("frame", frame)
-        stream_buffer.put(frame)
-        # out.write(frame)
+        if frame_count == 100:
+            started_threads.put(index)
 
-        # check for quit signal
-        if cv2.pollKey() == ord("q"):
-            break
+        stream_buffer.put(frame)
 
     stream_buffer.put(None)
     # release resources
@@ -346,6 +355,7 @@ vid_list = [
 
 def restart():
     worker_queue.put(None)
+    restart_event.set()
     # Get the current thread (main thread in this case)
     current_thread = threading.current_thread()
 
@@ -356,35 +366,76 @@ def restart():
     main()
 
 
-def main():
-    worker_ref = threading.Thread(target=worker_thread, args=(worker_queue,))
-    worker_ref.start()
-
+def read_live_feeds():
     conn = connect_to_db()
     cursor = conn.cursor()
     cursor.execute(GET_LIVE_FEEDS)
     feeds = cursor.fetchall()
     conn.close()
+    return feeds, cursor.description
 
-    names = list(map(lambda x: x[0], cursor.description))
+
+def main():
+    restart_event.clear()
+
+    started_threads = queue.Queue()
+
+    feeds, description = read_live_feeds()
+
+    names = list(map(lambda x: x[0], description))
     print("Got feeds", names, feeds)
-    feed_threads = []
+    # feed_threads = []
     for i, feed_data in enumerate(feeds):
         feed = {name: feed_data[index] for index, name in enumerate(names)}
         print("Processing feed", feed)
         # process_video(feed)
         feed_thread = threading.Thread(
             target=process_video,
-            args=(
-                feed,
-                i,
-            ),
+            args=(feed, i, started_threads),
         )
         feed_thread.start()
-        feed_threads.append(feed_thread)
+        # feed_threads.append(feed_thread)
     print("Finished feed loop")
-    for feed_thread in feed_threads:
-        feed_thread.join()
+    while started_threads.qsize() < len(feeds):
+        print("Waiting for threads to start")
+        sleep(1)
+
+    socket.send_string("started")
+
+
+# Source: https://stackoverflow.com/questions/57577445/list-available-cameras-opencv-python
+def list_ports():
+    """
+    Test the ports and returns a tuple with the available ports and the ones that are working.
+    """
+    non_working_ports = []
+    dev_port = 0
+    working_ports = []
+    available_ports = []
+    while (
+        len(non_working_ports) < 6
+    ):  # if there are more than 5 non working ports stop the testing.
+        camera = cv2.VideoCapture(dev_port)
+        if not camera.isOpened():
+            non_working_ports.append(dev_port)
+            print("Port %s is not working." % dev_port)
+        else:
+            is_reading, img = camera.read()
+            w = camera.get(3)
+            h = camera.get(4)
+            if is_reading:
+                print(
+                    "Port %s is working and reads images (%s x %s)" % (dev_port, h, w)
+                )
+                working_ports.append(dev_port)
+            else:
+                print(
+                    "Port %s for camera ( %s x %s) is present but does not reads."
+                    % (dev_port, h, w)
+                )
+                available_ports.append(dev_port)
+        dev_port += 1
+    return available_ports, working_ports, non_working_ports
 
 
 def calculate_iou(box1, box2):
@@ -502,5 +553,53 @@ def evaluation():
         return
 
 
+worker_ref = threading.Thread(target=worker_thread, args=(worker_queue,))
+worker_ref.start()
+
 # evaluation()
-main()
+# main()
+
+
+def start_added_feed(feed_id):
+    feeds, description = read_live_feeds()
+    names = list(map(lambda x: x[0], description))
+    for f in feeds:
+        feed = {name: f[index] for index, name in enumerate(names)}
+        if feed_id == feed["id"]:
+            feed_thread = threading.Thread(
+                target=process_video,
+                args=(feed, len(feeds) - 1, queue.Queue()),
+            )
+            feed_thread.start()
+    socket.send_string("feed_started")
+
+
+while True:
+    message = socket.recv()
+    print("message %s" % message)
+    decoded = message.decode("utf-8")
+    if message == b"start":
+        print("starting")
+        main()
+    elif message == b"restart":
+        print("restarting")
+        restart()
+    elif decoded.startswith("add_feed:"):
+        feed_info = decoded.split(":")
+        print("adding feed")
+        start_added_feed(int(feed_info[1]))
+    elif decoded.startswith("set_detecting:"):
+        print("setting detecting", decoded)
+        detection_info = decoded.split(":")
+        feed_id = int(detection_info[1])
+        feed_status = int(detection_info[2])
+        print("setting detecting for", feed_id, feed_status)
+        if feed_status == 0:
+            detecting_events[feed_id].clear()
+            print("clearing detecting")
+        else:
+            detecting_events[feed_id].set()
+            print("setting detecting")
+        socket.send_string("detection_set")
+
+    sleep(1)

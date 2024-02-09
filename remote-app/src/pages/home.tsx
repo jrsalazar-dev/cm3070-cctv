@@ -2,6 +2,7 @@ import { For, Show, createEffect, createSignal } from 'solid-js'
 import { io } from 'socket.io-client'
 import { AlertsModal, Header, formatDate, formatTime } from '@cm-apps/shared'
 import { Alert } from '../types'
+import { useSearchParams } from '@solidjs/router'
 
 let peerConnection: RTCPeerConnection
 const config = {
@@ -17,11 +18,14 @@ interface Watching {
   alert?: string
 }
 export default function Home() {
+  const [paramsProxy, setParams] = useSearchParams()
+  const params = { ...paramsProxy }
+
   const [isModalOpen, setIsModalOpen] = createSignal(false)
   const [alerts, setAlerts] = createSignal([])
   const [liveFeeds, setLiveFeeds] = createSignal([])
   const [watching, setWatching] = createSignal<Watching>({
-    alert: null,
+    alert: undefined,
   })
 
   const socket = io()
@@ -69,6 +73,10 @@ export default function Home() {
     socket.on('alerts', (alerts) => {
       console.log('alerts', alerts)
       setAlerts(alerts)
+      if (params.alertId) {
+        console.log('setting watching', params.alertId)
+        setWatching({ alert: params.alertId })
+      }
     })
 
     socket.on('liveFeeds', (liveFeeds) => {
@@ -89,6 +97,7 @@ export default function Home() {
 
   const formatAlertName = (alertId: string, alerts: Alert[]) => {
     const alert = alerts.find((a) => a.id === alertId)
+    if (!alert) return ''
     return `${formatTime(alert.detection_time)} ${formatDate(alert.detection_time)} Feed: ${alert
       .detection_feed?.name}`
   }
@@ -97,7 +106,7 @@ export default function Home() {
     <div class="container mx-auto">
       <Header openAlertsModal={() => setIsModalOpen(true)} />
       <section class="bg-gray-800 text-gray-300 p-8">
-        <Show when={'liveFeed' in watching()}>
+        <Show when={watching().alert || watching().liveFeed}>
           <div class="relative w-full h-full">
             <h1 class="text-2xl text-slate-200 dark:bg-black dark:bg-opacity-70 p-3 font-light mx-auto absolute top-0 left-0">
               {watching().alert
