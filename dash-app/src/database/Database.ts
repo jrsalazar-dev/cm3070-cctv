@@ -91,6 +91,12 @@ export default class Database {
     })
   }
 
+  public async deleteLiveFeed(id: string): Promise<DeleteResult> {
+    const liveFeedRepository = this.getLiveFeedRepository()
+
+    return liveFeedRepository.delete(id)
+  }
+
   public async setLiveFeedAlerting(id: number, enabled: boolean): Promise<UpdateResult> {
     const liveFeedRepository = this.getLiveFeedRepository()
 

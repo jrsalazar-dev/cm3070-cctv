@@ -14,6 +14,9 @@ const api: Api = {
   deleteAlert(id: string) {
     return ipcRenderer.invoke('delete-alert', id)
   },
+  deleteLiveFeed(id: string) {
+    return ipcRenderer.invoke('delete-live-feed', id)
+  },
   setLiveFeedAlerting(id: number, enabled: boolean) {
     return ipcRenderer.invoke('set-live-feed-alerting', id, enabled)
   },

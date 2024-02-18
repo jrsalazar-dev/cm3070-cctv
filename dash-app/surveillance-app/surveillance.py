@@ -6,7 +6,7 @@ import os
 import sqlite3
 import asyncio
 
-# import pybgs as bgs
+import pybgs as bgs
 from math import floor
 from time import sleep
 from datetime import datetime
@@ -48,6 +48,8 @@ backSub = cv2.createBackgroundSubtractorMOG2(
 )
 
 detection_timestamp = 0
+
+dir = os.path.dirname(os.path.realpath(__file__))
 
 worker_queue = queue.Queue()
 
@@ -98,7 +100,7 @@ def worker_thread(task_queue):
             )
             conn.commit()
             task_queue.task_done()
-            save_video_clip(buffer, f"./output/{filename}", fps)
+            save_video_clip(buffer, f"{dir}/output/{filename}", fps)
             print("Saved alert, closing connections")
         except queue.Empty:
             print("Queue empty, sleeping 1s")
@@ -165,16 +167,15 @@ def should_stop_recording(frame_count, fps, person_detected_at, first_detection)
     return has_been_quiet or has_recorded_full_buffer
 
 
-def run_live_feed(fps, width, height, stream_buffer, index):
+def run_live_feed(fps, width, height, stream_buffer, feed_id):
     # OpenCV VideoWriter with the GStreamer pipeline
     gst_simple = (
         "appsrc ! "
         "videoconvert ! "
         "vp8enc ! "
         "webmmux streamable=true ! "
-        f"tcpserversink host=localhost port={5000 + index} recover-policy=keyframe sync-method=latest-keyframe"
+        f"tcpserversink host=localhost port={5000 + feed_id} recover-policy=keyframe sync-method=latest-keyframe"
     )
-    print(gst_simple, index)
     out = cv2.VideoWriter(gst_simple, cv2.CAP_GSTREAMER, fps, (width, height), True)
     while True:
         try:
@@ -236,7 +237,7 @@ def find_frame_movement(frame):
     return frame, contours
 
 
-def process_video(feed, index, started_threads):
+def process_video(feed, started_threads):
     print("_____FEED_____", feed)
     video_count = 0
     cap = capture(feed)
@@ -257,12 +258,14 @@ def process_video(feed, index, started_threads):
 
     detecting_events[feed["id"]] = threading.Event()
 
-    print(detecting_events)
+    if feed["is_detecting"]:
+        detecting_events[feed["id"]].set()
+
     # Start a new thread to stream the video
     # if index == 0:
     stream_thread = threading.Thread(
         target=run_live_feed,
-        args=(fps, new_width, new_height, stream_buffer, index),
+        args=(fps, new_width, new_height, stream_buffer, feed["id"]),
     )
     stream_thread.start()
 
@@ -298,6 +301,7 @@ def process_video(feed, index, started_threads):
             stream_buffer.get()
 
         if should_stop_recording(frame_count, fps, person_detected_at, first_detection):
+            print("stop recording")
             video_count += 1
             person_detected_at = -1
             first_detection = -1
@@ -315,7 +319,7 @@ def process_video(feed, index, started_threads):
             frame_buffer.put(frame)
 
         if frame_count == 100:
-            started_threads.put(index)
+            started_threads.put(feed["id"])
 
         stream_buffer.put(frame)
 
@@ -370,9 +374,15 @@ def read_live_feeds():
     conn = connect_to_db()
     cursor = conn.cursor()
     cursor.execute(GET_LIVE_FEEDS)
-    feeds = cursor.fetchall()
+    names = list(map(lambda x: x[0], cursor.description))
+    db_feeds = cursor.fetchall()
     conn.close()
-    return feeds, cursor.description
+    feeds = []
+
+    for feed in db_feeds:
+        feeds.append({name: feed[index] for index, name in enumerate(names)})
+
+    return feeds
 
 
 def main():
@@ -380,18 +390,16 @@ def main():
 
     started_threads = queue.Queue()
 
-    feeds, description = read_live_feeds()
+    feeds = read_live_feeds()
 
-    names = list(map(lambda x: x[0], description))
-    print("Got feeds", names, feeds)
+    print("Got feeds", feeds)
     # feed_threads = []
-    for i, feed_data in enumerate(feeds):
-        feed = {name: feed_data[index] for index, name in enumerate(names)}
+    for feed in feeds:
         print("Processing feed", feed)
         # process_video(feed)
         feed_thread = threading.Thread(
             target=process_video,
-            args=(feed, i, started_threads),
+            args=(feed, started_threads),
         )
         feed_thread.start()
         # feed_threads.append(feed_thread)
@@ -466,140 +474,197 @@ def calculate_iou(box1, box2):
     return iou
 
 
-def measure_accuracy(gt_contours, detected_contours):
+def get_frame_accuracy(gt_contours, detected_contours):
     # Convert contours to bounding boxes
     detected_boxes = [cv2.boundingRect(contour) for contour in detected_contours]
 
     ground_truth_boxes = [cv2.boundingRect(contour) for contour in gt_contours]
 
+    if len(ground_truth_boxes) < 1:
+        return -1
+
     # Calculate IoU and store the results
-    results = []
+    total_iou = 0
     for gt_box in ground_truth_boxes:
+        highest_iou = 0
         for det_box in detected_boxes:
-            iou = calculate_iou(det_box, gt_box)
-            if iou > 0.5:
-                results.append(
-                    {"Detected Box": det_box, "Ground Truth Box": gt_box, "IoU": iou}
-                )
+            highest_iou = max(highest_iou, calculate_iou(det_box, gt_box))
+        total_iou += highest_iou
 
     # Calculate accuracy
-    correct_detections = sum(1 for result in results)
-    total_detections = len(ground_truth_boxes)
-    accuracy = (
-        correct_detections / total_detections
-        if total_detections > correct_detections
-        else correct_detections
-    )
+    accuracy = total_iou / len(ground_truth_boxes)
 
-    return results, accuracy
+    return accuracy
 
 
-def find_movement_bsuv():
-    model = torch.load("Fast-BSUV-Net-2.0.mdl")
-    model.eval()
-    return model
+def show_frames(input, gt, bgs):
+    cv2.imshow("Input frames", input)
+    cv2.imshow("Ground truth with contours", gt)
+    cv2.imshow("Foreground contours", bgs)
+    cv2.waitKey(1)
 
 
-# bg_model = bgs.ViBe()
+def evaluate_bgs_model(model, frame_count, path, eval_name):
+    # print(f"Starting evaluation of model {model['name']} on {eval_name} dataset")
+    results = []
+    total_accuracy = 0
+    bg_model = model["model"]()
+    for index in range(1, frame_count):
+        index = str(index).zfill(6)
+        gt_path = f"{path}/groundtruth/gt{index}.png"
+        ground_truth = cv2.imread(gt_path)
+        input = cv2.imread(f"{path}/input/in{index}.jpg")
+
+        gray = cv2.cvtColor(ground_truth, cv2.COLOR_BGR2GRAY)
+        _, thresh = cv2.threshold(gray, 169, 255, cv2.THRESH_BINARY)
+
+        gt_contours, _ = cv2.findContours(
+            thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+
+        for contour in gt_contours:
+            x, y, w, h = cv2.boundingRect(contour)
+            cv2.rectangle(thresh, (x, y), (x + w, y + h), (255, 255, 255), 2)
+
+        # Use if we want to use the same function for both methods
+        # bgsub_frame, bgsub_contours = find_frame_movement(input)
+        bgs_out = bg_model.apply(input)
+        bgs_contours, _ = cv2.findContours(
+            bgs_out, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        for contour in bgs_contours:
+            x, y, w, h = cv2.boundingRect(contour)
+            cv2.rectangle(bgs_out, (x, y), (x + w, y + h), (255, 255, 255), 2)
+
+        # show_frames(input, thresh, bgs_out)
+
+        accuracy = get_frame_accuracy(gt_contours, bgs_contours)
+        if accuracy != -1:
+            results.append(accuracy)
+
+    total_accuracy = sum(results)
+    average_accuracy = total_accuracy / len(results)
+    # print(f"Evaluated {model['name']} with accuracy: {average_accuracy}")
+    return average_accuracy
 
 
 def evaluation():
     path = "./dataset2014/dataset/baseline/pedestrians"
-    while True:
-        aggregated_results = []
+
+    eval_models = [
+        {
+            "name": "MOG2",
+            "model": lambda: backSub,
+        },
+        {
+            "name": "ViBe",
+            "model": bgs.ViBe,
+        },
+        {"name": "KNN", "model": bgs.KNN},
+        # {"name": "SuBSENSE", "model": bgs.SuBSENSE()},
+        # {"name": "LOBSTER", "model": bgs.LOBSTER()},
+        {"name": "Sigma Delta", "model": bgs.SigmaDelta},
+        {"name": "Two Points", "model": bgs.TwoPoints},
+    ]
+
+    eval = [
+        {
+            "name": "pedestrians",
+            "path": "./dataset2014/dataset/baseline/pedestrians",
+            "frame_count": 1099,
+        },
+        {
+            "name": "office",
+            "path": "./dataset2014/dataset/baseline/office",
+            "frame_count": 2050,
+        },
+        {
+            "name": "highway",
+            "path": "./dataset2014/dataset/baseline/highway",
+            "frame_count": 1700,
+        },
+        {
+            "name": "sofa",
+            "path": "./dataset2014/dataset/intermittentObjectMotion/sofa",
+            "frame_count": 2750,
+        },
+        {
+            "name": "winter driveway",
+            "path": "./dataset2014/dataset/intermittentObjectMotion/winterDriveway",
+            "frame_count": 2500,
+        },
+        {
+            "name": "tramstop",
+            "path": "./dataset2014/dataset/intermittentObjectMotion/tramstop",
+            "frame_count": 3200,
+        },
+        {
+            "name": "night boulevard",
+            "path": "./dataset2014/dataset/nightVideos/busyBoulvard",
+            "frame_count": 2760,
+        },
+    ]
+
+    for model in eval_models:
+        model_results = {
+            "name": model["name"],
+        }
         total_accuracy = 0
-        # for index in range(1, 1099):
-        for i in range(400, 900):
-            index = str(i).zfill(6)
-            gt_path = f"{path}/groundtruth/gt{index}.png"
-            ground_truth = cv2.imread(gt_path)
-            input = cv2.imread(f"{path}/input/in{index}.jpg")
-
-            # cv2.imshow("gt", ground_truth)
-
-            gray = cv2.cvtColor(ground_truth, cv2.COLOR_BGR2GRAY)
-            _, thresh = cv2.threshold(gray, 169, 255, cv2.THRESH_BINARY)
-
-            gt_contours, _ = cv2.findContours(
-                thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        for item in eval:
+            accuracy = evaluate_bgs_model(
+                model, item["frame_count"], item["path"], item["name"]
             )
-
-            for contour in gt_contours:
-                x, y, w, h = cv2.boundingRect(contour)
-                cv2.rectangle(input, (x, y), (x + w, y + h), (0, 255, 0), 2)
-
-            # bgsub_frame, bgsub_contours = find_frame_movement(input)
-            bgs_out = bg_model.apply(input)
-            bgs_contours, _ = cv2.findContours(
-                bgs_out, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-            )
-            # bgs_bgmodel = bg_model.getBackgroundModel()
-
-            # acc_results, accuracy = measure_accuracy(gt_contours, bgsub_contours)
-            # aggregated_results += acc_results
-            # total_accuracy += accuracy
-
-            cv2.imshow("Ground truth contours", input)
-            cv2.imshow("bgs", bgs_out)
-            # cv2.imshow("bgs_model", bgs_bgmodel)
-            cv2.waitKey(1)
-
-            if cv2.pollKey() == ord("q"):
-                cv2.destroyAllWindows()
-                return
-        # average_accuracy = total_accuracy / len(aggregated_results)
-        # print(f"\nAverage Accuracy: {average_accuracy:.2f}")
-        # print(aggregated_results)
-        return
+            total_accuracy += accuracy
+            model_results[item["name"]] = accuracy
+        model_results["average_accuracy"] = total_accuracy / len(eval)
+        print(f"Model results {model_results}")
 
 
-worker_ref = threading.Thread(target=worker_thread, args=(worker_queue,))
-worker_ref.start()
+# worker_ref = threading.Thread(target=worker_thread, args=(worker_queue,))
+# worker_ref.start()
 
-# evaluation()
+evaluation()
 # main()
 
 
 def start_added_feed(feed_id):
-    feeds, description = read_live_feeds()
-    names = list(map(lambda x: x[0], description))
-    for f in feeds:
-        feed = {name: f[index] for index, name in enumerate(names)}
+    feeds = read_live_feeds()
+    for feed in feeds:
         if feed_id == feed["id"]:
             feed_thread = threading.Thread(
                 target=process_video,
-                args=(feed, len(feeds) - 1, queue.Queue()),
+                args=(feed, queue.Queue()),
             )
             feed_thread.start()
     socket.send_string("feed_started")
 
 
-while True:
-    message = socket.recv()
-    print("message %s" % message)
-    decoded = message.decode("utf-8")
-    if message == b"start":
-        print("starting")
-        main()
-    elif message == b"restart":
-        print("restarting")
-        restart()
-    elif decoded.startswith("add_feed:"):
-        feed_info = decoded.split(":")
-        print("adding feed")
-        start_added_feed(int(feed_info[1]))
-    elif decoded.startswith("set_detecting:"):
-        print("setting detecting", decoded)
-        detection_info = decoded.split(":")
-        feed_id = int(detection_info[1])
-        feed_status = int(detection_info[2])
-        print("setting detecting for", feed_id, feed_status)
-        if feed_status == 0:
-            detecting_events[feed_id].clear()
-            print("clearing detecting")
-        else:
-            detecting_events[feed_id].set()
-            print("setting detecting")
-        socket.send_string("detection_set")
-
-    sleep(1)
+# while True:
+#     message = socket.recv()
+#     print("message %s" % message)
+#     decoded = message.decode("utf-8")
+#     if message == b"start":
+#         print("starting")
+#         main()
+#     elif message == b"restart":
+#         print("restarting")
+#         restart()
+#     elif decoded.startswith("add_feed:"):
+#         feed_info = decoded.split(":")
+#         print("adding feed")
+#         start_added_feed(int(feed_info[1]))
+#     elif decoded.startswith("set_detecting:"):
+#         print("setting detecting", decoded)
+#         detection_info = decoded.split(":")
+#         feed_id = int(detection_info[1])
+#         feed_status = int(detection_info[2])
+#         print("setting detecting for", feed_id, feed_status)
+#         if feed_status == 0:
+#             detecting_events[feed_id].clear()
+#             print("clearing detecting")
+#         else:
+#             detecting_events[feed_id].set()
+#             print("setting detecting")
+#         socket.send_string("detection_set")
+#
+#     sleep(1)

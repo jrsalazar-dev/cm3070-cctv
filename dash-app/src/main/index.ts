@@ -19,8 +19,7 @@ const mj = new Mailjet({
 function createWindow(): void {
   // Create the browser window.
   const mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 920,
+    simpleFullscreen: true,
     show: false,
     autoHideMenuBar: true,
     ...(process.platform === 'linux' ? { icon } : {}),
@@ -77,6 +76,9 @@ async function registerHandlers(): Promise<void> {
   ipcMain.handle('delete-alert', (_, id: string) => {
     return db.deleteAlert(id)
   })
+  ipcMain.handle('delete-live-feed', (_, id: string) => {
+    return db.deleteLiveFeed(id)
+  })
   ipcMain.handle('add-live-feed', async (_, liveFeed) => {
     const result = await db.addLiveFeed(liveFeed)
     console.log('IDENTIFIERS', result.identifiers)
@@ -87,7 +89,9 @@ async function registerHandlers(): Promise<void> {
     console.log(response.toString())
   })
   ipcMain.handle('set-live-feed-alerting', async (_, id: number, enabled: boolean) => {
-    db.setLiveFeedAlerting(id, enabled)
+    await db.setLiveFeedAlerting(id, enabled)
+
+    console.log('set_detecting:', `set_detecting:${id}:${enabled ? 1 : 0}`)
 
     sock.send(`set_detecting:${id}:${enabled ? 1 : 0}`)
 

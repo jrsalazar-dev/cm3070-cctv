@@ -17,15 +17,12 @@ export const SettingsModal: Component<Props> = (props) => {
       onClose={() => props.setIsSettingsModalOpen(false)}
       contentClass="rounded w-full max-w-2xl"
     >
-      <div class="p-12 rounded-md bg-gray-800 flex flex-col justify-between align-middle text-gray-200">
-        <h1 class="text-left text-2xl mb-7">Settings</h1>
-        {
-          // <h2 class="text-left text-xl mb-5">Live feeds</h2>
-        }
+      <div class="p-12 rounded-md bg-default flex flex-col justify-between align-middle text-gray-200">
+        <h1 class="text-left text-2xl mb-5">Settings</h1>
 
         <For each={props.liveFeeds}>
           {(liveFeed) => (
-            <div class="flex-col">
+            <div class="flex-col mt-10">
               <h3 class="mb-2">{liveFeed.name}</h3>
               <div class="flex-row justify-between align-middle cursor-pointer">
                 <Switch.Root

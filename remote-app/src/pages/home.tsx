@@ -1,8 +1,19 @@
 import { For, Show, createEffect, createSignal } from 'solid-js'
-import { io } from 'socket.io-client'
-import { AlertsModal, Header, formatDate, formatTime } from '@cm-apps/shared'
-import { Alert } from '../types'
 import { useSearchParams } from '@solidjs/router'
+import { TbLoader } from 'solid-icons/tb'
+import { io } from 'socket.io-client'
+
+import {
+  AlertsModal,
+  GhostButton,
+  Header,
+  LiveFeedTab,
+  formatDate,
+  formatTime,
+} from '@cm-apps/shared'
+
+import { Alert } from '../types'
+import { Button } from '@kobalte/core'
 
 let peerConnection: RTCPeerConnection
 const config = {
@@ -22,6 +33,8 @@ export default function Home() {
   const params = { ...paramsProxy }
 
   const [isModalOpen, setIsModalOpen] = createSignal(false)
+  const [isLoaded, setIsLoaded] = createSignal(false)
+  const [isConfirmed, setIsConfirmed] = createSignal(false)
   const [alerts, setAlerts] = createSignal([])
   const [liveFeeds, setLiveFeeds] = createSignal([])
   const [watching, setWatching] = createSignal<Watching>({
@@ -52,7 +65,6 @@ export default function Home() {
         const stream = new MediaStream()
         stream.addTrack(track)
         video.srcObject = stream
-        video.play()
       }
       peerConnection.onicecandidate = (event) => {
         if (event.candidate) {
@@ -76,12 +88,15 @@ export default function Home() {
       if (params.alertId) {
         console.log('setting watching', params.alertId)
         setWatching({ alert: params.alertId })
+        setParams({ alertId: undefined })
       }
     })
 
     socket.on('liveFeeds', (liveFeeds) => {
       console.log('liveFeeds', liveFeeds)
       setLiveFeeds(liveFeeds)
+      console.log('setting is loaded')
+      setIsLoaded(true)
     })
   })
   socket.on('disconnect', () => {
@@ -105,37 +120,37 @@ export default function Home() {
   return (
     <div class="container mx-auto">
       <Header openAlertsModal={() => setIsModalOpen(true)} />
-      <section class="bg-gray-800 text-gray-300 p-8">
+      <section class="bg-default text-gray-300 p-8">
         <Show when={watching().alert || watching().liveFeed}>
           <div class="relative w-full h-full">
-            <h1 class="text-2xl text-slate-200 dark:bg-black dark:bg-opacity-70 p-3 font-light mx-auto absolute top-0 left-0">
-              {watching().alert
-                ? formatAlertName(watching().alert, alerts())
-                : liveFeeds().find((f) => f.id === watching().liveFeed)?.name}
-            </h1>
-            <video class="mx-auto w-full" id="video-stream" crossOrigin="anonymous" autoplay loop />
+            <div class="pagination__root absolute top-0 -translate-y-10">
+              <ul>
+                <For each={liveFeeds()}>
+                  {(feed) => (
+                    <LiveFeedTab
+                      feed={feed}
+                      watchingId={watching().liveFeed}
+                      setWatching={(w) =>
+                        setWatching({
+                          liveFeed: w.video,
+                          alert: undefined,
+                        })
+                      }
+                    />
+                  )}
+                </For>
+              </ul>
+            </div>
+
+            <video
+              class="mx-auto w-full z-50 translate-x-0"
+              id="video-stream"
+              crossOrigin="anonymous"
+              autoplay
+              loop
+            />
           </div>
         </Show>
-
-        <div class="pagination__root mt-5">
-          <ul>
-            <For each={liveFeeds()}>
-              {(feed) => (
-                <button
-                  class="pagination__item bg-gray-300"
-                  onClick={() =>
-                    setWatching({
-                      liveFeed: feed.id,
-                      alert: undefined,
-                    })
-                  }
-                >
-                  {feed.name}
-                </button>
-              )}
-            </For>
-          </ul>
-        </div>
 
         <AlertsModal
           onDelete={() => {}}
@@ -145,6 +160,37 @@ export default function Home() {
           onPlay={(alert) => setWatching({ alert: alert.id, liveFeed: undefined })}
         />
       </section>
+
+      <Show when={!isConfirmed()}>
+        <Show
+          when={isLoaded()}
+          fallback={
+            <div class="fixed top-0 container w-full h-lvh flex flex-col items-center justify-center text-white bg-default">
+              <TbLoader class="animate-spin text-6xl" />
+              <h1 class="mt-3">Connecting to home cameras</h1>
+            </div>
+          }
+        >
+          <div class="fixed top-0 container w-full h-lvh flex flex-col items-center justify-center text-white bg-default">
+            <h1 class="mb-3">Finished connecting</h1>
+            <GhostButton
+              class="p-3 bg-gray-600 text-zinc-50"
+              onClick={() => {
+                setIsConfirmed(true)
+                if (!watching().alert && !watching().liveFeed) {
+                  setWatching({
+                    liveFeed: liveFeeds()[0].id,
+                  })
+                }
+                const video = document.getElementById('video-stream') as HTMLVideoElement
+                video?.play()
+              }}
+            >
+              Enter page
+            </GhostButton>
+          </div>
+        </Show>
+      </Show>
     </div>
   )
 }

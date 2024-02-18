@@ -18,7 +18,7 @@ export const Modal: Component<ModalProps> = (props) => {
   return (
     <Show when={props.isOpen}>
       <div
-        class="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center w-full"
+        class="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center w-full z-50"
         onClick={handleOverlayClick}
       >
         <div class={props.contentClass || 'rounded w-full max-w-7xl'}>

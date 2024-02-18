@@ -25,7 +25,7 @@ export const AddFeedModal: Component<Props> = (props) => {
       onClose={() => props.setIsOpen(false)}
       contentClass="rounded w-full max-w-lg"
     >
-      <div class="p-12 rounded-md bg-gray-800 flex flex-col justify-between align-middle text-gray-200">
+      <div class="p-12 rounded-md bg-default flex flex-col justify-between align-middle text-gray-200">
         <h1 class="text-left text-2xl mb-7">Add Live Feed</h1>
 
         <TextField label="Name" value={liveFeedName()} onChange={setLiveFeedName} />

@@ -1,10 +1,19 @@
 import { type Component, createResource, createSignal, Show, createEffect, For } from 'solid-js'
 import { TbLoader } from 'solid-icons/tb'
 import { io } from 'socket.io-client'
-import { AlertsModal, Header, formatTime, formatDate } from '@cm-apps/shared'
+import { Button } from '@kobalte/core'
+
+import {
+  AlertsModal,
+  Header,
+  formatTime,
+  formatDate,
+  LiveFeedTab,
+  GhostButton,
+} from '@cm-apps/shared'
+
 import { LiveFeed } from 'src/database/models/LiveFeed'
 import { Alert } from 'src/database/models/Alert'
-import { Button } from '@kobalte/core'
 import { SettingsModal } from '@renderer/components/SettingsModal'
 import { AddFeedModal } from '@renderer/components/AddFeedModal'
 
@@ -26,27 +35,15 @@ export const Home: Component = () => {
   const [liveFeeds, { refetch: refetchLiveFeeds }] = createResource<LiveFeed[]>(async () => {
     return window.api.getLiveFeeds()
   })
-  // const [currentFeed, setCurrentFeed] = createSignal<number>(0)
 
-  const [watching, setWatching] = createSignal({
+  const findFeed = (id: number): LiveFeed | undefined => {
+    return liveFeeds()?.find((l) => l.id === id)
+  }
+
+  const [watching, setWatching] = createSignal<{ name: string; video: number | string }>({
     name: 'Main Webcam',
-    video: 'camera0',
+    video: 0,
   })
-
-  // createEffect(() => {
-  //   console.log('currentFeed', currentFeed())
-  // })
-
-  // createEffect(() => {
-  //   const l = liveFeeds()?.[0]
-  //
-  //   if (l?.cameraIndex) {
-  //     setWatching({
-  //       name: l.name,
-  //       video: `camera${l.cameraIndex}`,
-  //     })
-  //   }
-  // })
 
   socket.on('connect', () => {
     socket.emit('broadcaster', socket.id)
@@ -64,17 +61,18 @@ export const Home: Component = () => {
 
     socket.on('watch', (_, { alert: alertId, liveFeed }) => {
       if (liveFeed) {
-        const foundFeed = liveFeeds()?.findIndex((l) => l.id === liveFeed)
-        if (typeof foundFeed !== 'number') {
+        const foundFeed = liveFeeds()?.find((l) => l.id === liveFeed)
+        if (!foundFeed) {
           console.log('feed not found', liveFeed)
           return
         }
         setWatching({
-          video: `camera${foundFeed}`,
-          name: liveFeeds()?.[foundFeed].name || '',
+          video: foundFeed.id,
+          name: foundFeed.name,
         })
       } else if (alertId) {
         const alert = alerts()?.find((a: Alert) => a.id === +alertId)
+        console.log('watch alert', alert, alertId)
         if (alert) {
           setWatching({
             video: alert.filepath,
@@ -172,7 +170,7 @@ export const Home: Component = () => {
   const [isAddLiveFeedModalOpen, setIsAddLiveFeedModalOpen] = createSignal<boolean>(false)
   const [surveillanceIsLoaded, setSurveillanceIsLoaded] = createSignal<boolean>(false)
 
-  window.api.start().then((msg) => {
+  window.api.start().then((msg: boolean) => {
     console.log('started probably message:', msg)
     setSurveillanceIsLoaded(msg)
   })
@@ -181,7 +179,16 @@ export const Home: Component = () => {
     window.api.deleteAlert(id)
     refetchAlerts()
   }
+  const onDeleteLiveFeed = (id: number): void => {
+    setWatching({
+      liveFeed: liveFeeds()?.[0]?.id,
+      alert: undefined,
+    })
+    window.api.deleteLiveFeed(id)
+    refetchLiveFeeds()
+  }
   const onSetLiveFeedAlerting = (id: number, enabled: boolean): void => {
+    console.log('set alert button clicked')
     window.api.setLiveFeedAlerting(id, enabled)
     refetchLiveFeeds()
   }
@@ -190,7 +197,7 @@ export const Home: Component = () => {
     <Show
       when={surveillanceIsLoaded()}
       fallback={
-        <div class="container w-full h-lvh flex flex-col items-center justify-center text-white">
+        <div class="w-screen h-screen flex flex-col items-center justify-center text-white">
           <TbLoader class="animate-spin text-6xl" />
           <h1 class="mt-3">Starting cameras</h1>
         </div>
@@ -199,85 +206,101 @@ export const Home: Component = () => {
       <div class="container mx-auto">
         <Header
           openSettingsModal={() => setIsSettingsModalOpen(true)}
-          openAlertsModal={() => setIsAlertsModalOpen(true)}
+          openAlertsModal={() => {
+            refetchAlerts()
+            setIsAlertsModalOpen(true)
+          }}
         />
 
-        <Show when={watching().video}>
-          <div class="relative w-full h-full">
-            <video
-              class="mx-auto w-full"
-              id="video-viewer"
-              crossOrigin="anonymous"
-              src={
-                watching().video.startsWith('camera')
-                  ? `http://localhost:3001/stream/${watching().video.replace('camera', '')}`
-                  : `cmapp://${watching().video}`
-              }
-              onLoadedData={onDataLoad}
-              autoplay
-              loop
-            />
-            <h1 class="text-2xl text-slate-200 dark:bg-black dark:bg-opacity-70 p-3 font-light mx-auto absolute top-0 left-0">
-              {watching().name}
-            </h1>
-            <Show when={watching().video.startsWith('camera')}>
-              <Show
-                when={liveFeeds()?.[watching().video.replace('camera', '')]?.is_detecting}
-                fallback={
-                  <Button.Root class="absolute top-0 right-0 bg-red-700 text-slate-200 p-2 rounded-s">
-                    Detections off
-                  </Button.Root>
-                }
-              >
-                <Button.Root class="absolute top-0 right-0 bg-emerald-700 text-slate-200 p-2 rounded-s">
-                  Detections on
-                </Button.Root>
-              </Show>
-            </Show>
+        <div class="relative w-full h-full min-h-screen flex">
+          <div class="pagination__root z-0 absolute top-0 -translate-y-10">
+            <ul>
+              <For each={liveFeeds()}>
+                {(feed) => (
+                  <LiveFeedTab
+                    feed={feed}
+                    watchingId={+watching().video}
+                    setWatching={setWatching}
+                    onDelete={onDeleteLiveFeed}
+                  />
+                )}
+              </For>
+              <li>
+                <button
+                  class="bg-secondary text-active p-3 px-5 rounded-t-lg text-light"
+                  onClick={() => setIsAddLiveFeedModalOpen(true)}
+                >
+                  <div class="scale-150">+</div>
+                </button>
+              </li>
+            </ul>
           </div>
-        </Show>
-
-        <div class="pagination__root mt-5">
-          <ul>
-            <For each={liveFeeds()}>
-              {(feed, index) => (
-                <li>
-                  <button
-                    class="pagination__item bg-gray-300"
-                    onClick={() =>
-                      setWatching({
-                        video: `camera${index()}`,
-                        name: feed.name,
-                      })
-                    }
-                  >
-                    {feed.name}
-                  </button>
-                </li>
-              )}
-            </For>
-            <li>
-              <button
-                class="pagination__item bg-gray-300"
-                onClick={() => setIsAddLiveFeedModalOpen(true)}
+          <Show
+            when={watching().video}
+            fallback={
+              <GhostButton
+                class="text-white absolute top-1/2 left-1/2 -translate-x-9"
+                onClick={() => {
+                  const lf = liveFeeds()?.[0]
+                  if (!lf) return
+                  setWatching({
+                    video: lf.id,
+                    name: lf.name,
+                  })
+                }}
               >
-                Add live feed
-              </button>
-            </li>
-          </ul>
+                Play
+              </GhostButton>
+            }
+          >
+            <div class="z-10 mx-auto w-full">
+              <video
+                class="mx-auto w-full"
+                id="video-viewer"
+                crossOrigin="anonymous"
+                src={
+                  typeof watching().video === 'number'
+                    ? `http://localhost:3001/stream/${watching().video}`
+                    : `cmapp://${watching().video}`
+                }
+                onLoadedData={onDataLoad}
+                autoplay
+                loop
+              />
+              <Show when={typeof watching().video === 'number'}>
+                <Show
+                  when={findFeed(+watching().video)?.is_detecting}
+                  fallback={
+                    <Button.Root
+                      class="absolute top-0 right-0 bg-red-700 text-slate-200 p-2 rounded-s"
+                      onClick={() => onSetLiveFeedAlerting(+watching().video, true)}
+                    >
+                      Detections off
+                    </Button.Root>
+                  }
+                >
+                  <Button.Root
+                    class="absolute top-0 right-0 bg-emerald-700 text-slate-200 p-2 rounded-s"
+                    onClick={() => onSetLiveFeedAlerting(+watching().video, false)}
+                  >
+                    Detections on
+                  </Button.Root>
+                </Show>
+              </Show>
+            </div>
+          </Show>
         </div>
 
         <AddFeedModal
           isOpen={isAddLiveFeedModalOpen()}
           setIsOpen={setIsAddLiveFeedModalOpen}
           onSaveLiveFeed={(liveFeed) => {
-            const f = async (): Promise<void> => {
+            ;(async (): Promise<void> => {
               const res = await window.api.addLiveFeed(liveFeed)
               console.log(res)
               setIsAddLiveFeedModalOpen(false)
               refetchLiveFeeds()
-            }
-            f()
+            })()
           }}
         />
 

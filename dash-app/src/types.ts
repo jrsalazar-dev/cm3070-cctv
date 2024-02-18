@@ -7,6 +7,7 @@ export interface Api {
   requestDetections: () => Promise<string>
   getAlerts: () => Promise<Alert[]>
   deleteAlert: (id: string) => Promise<DeleteResult>
+  deleteLiveFeed: (id: string) => Promise<DeleteResult>
   setLiveFeedAlerting: (id: number, enabled: boolean) => Promise<UpdateResult>
   getLiveFeeds: () => Promise<LiveFeed[]>
   addLiveFeed: (liveFeed: PartialLiveFeed) => Promise<InsertResult>

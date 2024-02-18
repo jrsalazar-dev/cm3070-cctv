@@ -1544,6 +1544,7 @@ __metadata:
   resolution: "@cm-apps/remote@workspace:remote-app"
   dependencies:
     "@cm-apps/shared": "workspace:*"
+    "@kobalte/core": "npm:^0.12.1"
     "@solid-primitives/event-listener": "npm:^2.3.0"
     "@solid-primitives/websocket": "npm:^1.2.0"
     "@solidjs/router": "npm:^0.8.2"
@@ -1554,6 +1555,7 @@ __metadata:
     socket.io: "npm:^4.7.2"
     socket.io-client: "npm:^4.7.2"
     solid-devtools: "npm:^0.27.3"
+    solid-icons: "npm:^1.1.0"
     solid-js: "npm:^1.7.6"
     tailwindcss: "npm:^3.3.2"
     vite: "npm:^4.3.9"
