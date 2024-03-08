@@ -81,68 +81,67 @@ async function registerHandlers(): Promise<void> {
   })
   ipcMain.handle('add-live-feed', async (_, liveFeed) => {
     const result = await db.addLiveFeed(liveFeed)
-    console.log('IDENTIFIERS', result.identifiers)
     const id = result.identifiers[0].id
     await sock.send(`add_feed:${id}`)
-    console.log('SENT: ', `add_feed:${id}`)
     const [response] = await sock.receive()
     console.log(response.toString())
   })
-  ipcMain.handle('set-live-feed-alerting', async (_, id: number, enabled: boolean) => {
-    await db.setLiveFeedAlerting(id, enabled)
-
-    console.log('set_detecting:', `set_detecting:${id}:${enabled ? 1 : 0}`)
+  ipcMain.handle('set-live-feed-detecting', async (_, id: number, enabled: boolean) => {
+    await db.setLiveFeedDetecting(id, enabled)
 
     sock.send(`set_detecting:${id}:${enabled ? 1 : 0}`)
 
     const [result] = await sock.receive()
     console.log('result', result.toString())
   })
+  ipcMain.handle('set-live-feed-alerting', async (_, id: number, enabled: boolean) => {
+    await db.setLiveFeedAlerting(id, enabled)
+  })
   ipcMain.handle('request-detections', listDetections)
-
   ipcMain.handle('start', async () => {
     sock.send('start')
-    console.log('STARTING')
     const [result] = await sock.receive()
-    console.log('RECEIVED', result.toString())
     return result.toString() === 'started'
   })
 
-  // setTimeout(async () => {
-  //   const alerts = await db.getUnalerted()
-  //   console.log('UNALERTED COUNT', alerts.length)
-  //   for (const alert of alerts) {
-  //     console.log('UNALERTED', alert)
-  //     const res = await mj.post('send', { version: 'v3.1' }).request({
-  //       Messages: [
-  //         {
-  //           From: {
-  //             Email: 'contact@jrsalazar.dev',
-  //             Name: 'Surveillance App',
-  //           },
-  //           To: [
-  //             {
-  //               Email: 'jrsalazar.dev@hey.com',
-  //               Name: 'JR Salazar',
-  //             },
-  //           ],
-  //           Subject: `Intrusion Detected in feed ${alert.detection_feed?.name}`,
-  //           TextPart: `An intrusion was detected at ${new Date(
-  //             alert.detection_time * 1000,
-  //           ).toLocaleString()}. \n \n The objects detected were ${alert.detection_objects}`,
-  //           HtmlPart: `
-  //             <h2>Intrusion Detected</h2>
-  //             <p>An intrusion was detected at ${new Date(alert.detection_time * 1000).toLocaleString()}.<p> <br>
-  //             <p>The objects detected were ${alert.detection_objects}.</p> <br><br>
-  //
-  //             Watch the video <a href="https://localhost:3000?alertId=${alert.id}">here</a>
-  //           `,
-  //         },
-  //       ],
-  //     })
-  //     console.log('RESPONSE', res)
-  //   }
-  // }, 10_000)
+  setInterval(async () => {
+    const feeds = await db.fetchLiveFeeds()
+    const alerts = await db.getUnalerted()
+    for (const alert of alerts) {
+      const alertFeed = feeds.find((feed) => feed.id === alert.detection_feed?.id)
+      if (alertFeed?.is_alerting) {
+        await mj.post('send', { version: 'v3.1' }).request({
+          Messages: [
+            {
+              From: {
+                Email: 'contact@jrsalazar.dev',
+                Name: 'Surveillance App',
+              },
+              To: [
+                {
+                  Email: 'jrsalazar.dev@hey.com',
+                  Name: 'JR Salazar',
+                },
+              ],
+              Subject: `Intrusion Detected in feed ${alert.detection_feed?.name}`,
+              TextPart: `An intrusion was detected at ${new Date(
+                alert.detection_time * 1000,
+              ).toLocaleString()}. \n \n The objects detected were ${alert.detection_objects}`,
+              HtmlPart: `
+              <h2>Intrusion Detected</h2>
+              <p>An intrusion was detected at ${new Date(alert.detection_time * 1000).toLocaleString()}.<p> <br>
+              <p>The objects detected were ${alert.detection_objects}.</p> <br><br>
+
+              Watch the video <a href="http://localhost:3000?alertId=${alert.id}">here</a>
+            `,
+            },
+          ],
+        })
+      }
+      // Set alert to alerted
+      await db.setAlerted(alert.id)
+    }
+  }, 10_000)
 
   const cameraProcess = spawn('python3', [`${app.getAppPath()}/surveillance-app/surveillance.py`])
   cameraProcess.stdout.on('data', (data) => {

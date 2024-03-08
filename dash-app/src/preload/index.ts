@@ -20,6 +20,9 @@ const api: Api = {
   setLiveFeedAlerting(id: number, enabled: boolean) {
     return ipcRenderer.invoke('set-live-feed-alerting', id, enabled)
   },
+  setLiveFeedDetecting(id: number, enabled: boolean) {
+    return ipcRenderer.invoke('set-live-feed-detecting', id, enabled)
+  },
   getLiveFeeds() {
     return ipcRenderer.invoke('get-live-feeds')
   },

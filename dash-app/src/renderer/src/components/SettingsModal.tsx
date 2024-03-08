@@ -26,9 +26,9 @@ export const SettingsModal: Component<Props> = (props) => {
               <h3 class="mb-2">{liveFeed.name}</h3>
               <div class="flex-row justify-between align-middle cursor-pointer">
                 <Switch.Root
-                  onClick={() => props.onSetLiveFeedAlert(liveFeed.id, !liveFeed.is_detecting)}
+                  onClick={() => props.onSetLiveFeedAlert(liveFeed.id, !liveFeed.is_alerting)}
                   class="switch w-full"
-                  checked={liveFeed.is_detecting}
+                  checked={liveFeed.is_alerting}
                   onChange={(checked: boolean) => props.onSetLiveFeedAlert(liveFeed.id, checked)}
                 >
                   <div class="flex-col">

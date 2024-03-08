@@ -6,7 +6,7 @@ import os
 import sqlite3
 import asyncio
 
-import pybgs as bgs
+# import pybgs as bgs
 from math import floor
 from time import sleep
 from datetime import datetime
@@ -620,10 +620,10 @@ def evaluation():
         print(f"Model results {model_results}")
 
 
-# worker_ref = threading.Thread(target=worker_thread, args=(worker_queue,))
-# worker_ref.start()
+worker_ref = threading.Thread(target=worker_thread, args=(worker_queue,))
+worker_ref.start()
 
-evaluation()
+# evaluation()
 # main()
 
 
@@ -639,32 +639,32 @@ def start_added_feed(feed_id):
     socket.send_string("feed_started")
 
 
-# while True:
-#     message = socket.recv()
-#     print("message %s" % message)
-#     decoded = message.decode("utf-8")
-#     if message == b"start":
-#         print("starting")
-#         main()
-#     elif message == b"restart":
-#         print("restarting")
-#         restart()
-#     elif decoded.startswith("add_feed:"):
-#         feed_info = decoded.split(":")
-#         print("adding feed")
-#         start_added_feed(int(feed_info[1]))
-#     elif decoded.startswith("set_detecting:"):
-#         print("setting detecting", decoded)
-#         detection_info = decoded.split(":")
-#         feed_id = int(detection_info[1])
-#         feed_status = int(detection_info[2])
-#         print("setting detecting for", feed_id, feed_status)
-#         if feed_status == 0:
-#             detecting_events[feed_id].clear()
-#             print("clearing detecting")
-#         else:
-#             detecting_events[feed_id].set()
-#             print("setting detecting")
-#         socket.send_string("detection_set")
-#
-#     sleep(1)
+while True:
+    message = socket.recv()
+    print("message %s" % message)
+    decoded = message.decode("utf-8")
+    if message == b"start":
+        print("starting")
+        main()
+    elif message == b"restart":
+        print("restarting")
+        restart()
+    elif decoded.startswith("add_feed:"):
+        feed_info = decoded.split(":")
+        print("adding feed")
+        start_added_feed(int(feed_info[1]))
+    elif decoded.startswith("set_detecting:"):
+        print("setting detecting", decoded)
+        detection_info = decoded.split(":")
+        feed_id = int(detection_info[1])
+        feed_status = int(detection_info[2])
+        print("setting detecting for", feed_id, feed_status)
+        if feed_status == 0:
+            detecting_events[feed_id].clear()
+            print("clearing detecting")
+        else:
+            detecting_events[feed_id].set()
+            print("setting detecting")
+        socket.send_string("detection_set")
+
+    sleep(1)

@@ -28,9 +28,9 @@ export class Alert {
   @Column({
     type: 'boolean',
     name: 'detection_alerted',
-    default: 0,
+    default: false,
   })
-  detection_alerted: number
+  detection_alerted: boolean = false
 
   constructor() {
     this.id = 0
@@ -38,6 +38,5 @@ export class Alert {
     this.detection_time = 0
     this.detection_objects = ''
     this.detection_status = 0
-    this.detection_alerted = 0
   }
 }

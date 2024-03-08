@@ -181,8 +181,8 @@ export const Home: Component = () => {
   }
   const onDeleteLiveFeed = (id: number): void => {
     setWatching({
-      liveFeed: liveFeeds()?.[0]?.id,
-      alert: undefined,
+      video: liveFeeds()?.[0]?.id || 0,
+      name: liveFeeds()?.[0]?.name || '',
     })
     window.api.deleteLiveFeed(id)
     refetchLiveFeeds()
@@ -190,6 +190,11 @@ export const Home: Component = () => {
   const onSetLiveFeedAlerting = (id: number, enabled: boolean): void => {
     console.log('set alert button clicked')
     window.api.setLiveFeedAlerting(id, enabled)
+    refetchLiveFeeds()
+  }
+  const onSetLiveFeedDetecting = (id: number, enabled: boolean): void => {
+    console.log('set alert button clicked')
+    window.api.setLiveFeedDetecting(id, enabled)
     refetchLiveFeeds()
   }
 
@@ -273,7 +278,7 @@ export const Home: Component = () => {
                   fallback={
                     <Button.Root
                       class="absolute top-0 right-0 bg-red-700 text-slate-200 p-2 rounded-s"
-                      onClick={() => onSetLiveFeedAlerting(+watching().video, true)}
+                      onClick={() => onSetLiveFeedDetecting(+watching().video, true)}
                     >
                       Detections off
                     </Button.Root>
@@ -281,7 +286,7 @@ export const Home: Component = () => {
                 >
                   <Button.Root
                     class="absolute top-0 right-0 bg-emerald-700 text-slate-200 p-2 rounded-s"
-                    onClick={() => onSetLiveFeedAlerting(+watching().video, false)}
+                    onClick={() => onSetLiveFeedDetecting(+watching().video, false)}
                   >
                     Detections on
                   </Button.Root>

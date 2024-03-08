@@ -69,10 +69,26 @@ export default class Database {
     return alertRepository.find({
       take: 1,
       relations: ['detection_feed'],
+      order: {
+        id: 'DESC',
+      },
       where: {
-        detection_alerted: 0,
+        detection_alerted: false,
       },
     })
+  }
+
+  public async setAlerted(id: number): Promise<UpdateResult> {
+    const alertRepository = this.getAlertRepository()
+
+    return alertRepository.update(
+      {
+        id,
+      },
+      {
+        detection_alerted: true,
+      },
+    )
   }
 
   public async fetchLiveFeeds(): Promise<LiveFeed[]> {
@@ -98,6 +114,19 @@ export default class Database {
   }
 
   public async setLiveFeedAlerting(id: number, enabled: boolean): Promise<UpdateResult> {
+    const liveFeedRepository = this.getLiveFeedRepository()
+
+    return liveFeedRepository.update(
+      {
+        id,
+      },
+      {
+        is_alerting: enabled,
+      },
+    )
+  }
+
+  public async setLiveFeedDetecting(id: number, enabled: boolean): Promise<UpdateResult> {
     const liveFeedRepository = this.getLiveFeedRepository()
 
     return liveFeedRepository.update(

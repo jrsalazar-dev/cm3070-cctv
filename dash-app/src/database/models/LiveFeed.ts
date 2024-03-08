@@ -24,6 +24,12 @@ export class LiveFeed {
     name: 'is_detecting',
   })
   is_detecting: boolean
+  @Column({
+    default: 0,
+    type: 'boolean',
+    name: 'is_alerting',
+  })
+  is_alerting: boolean = false
 
   constructor() {
     this.id = 0
